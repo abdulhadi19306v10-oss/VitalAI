@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -82,6 +83,75 @@ class VitalApiClient {
       );
     }
     return PredictResponse.fromJson(
+      jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
+    );
+  }
+
+  Future<Uint8List> exportDocx(
+    List<String> symptoms, {
+    String patientName = '',
+    int topK = 3,
+  }) async {
+    final response = await _http
+        .post(
+          _uri('/export-docx'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'symptoms': symptoms,
+            'top_k': topK,
+            'patient_name': patientName,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw ApiException(
+        _extractError(
+            utf8.decode(response.bodyBytes), 'Word report export failed'),
+        statusCode: response.statusCode,
+      );
+    }
+    return response.bodyBytes;
+  }
+
+  Future<Map<String, dynamic>> fetchMetrics() async {
+    final response = await _http
+        .get(_uri('/metrics?compact=true'))
+        .timeout(const Duration(seconds: 6));
+    if (response.statusCode != 200) {
+      throw ApiException(
+        _extractError(
+            utf8.decode(response.bodyBytes), 'Unable to load model metrics'),
+        statusCode: response.statusCode,
+      );
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<ParseSymptomsResponse> parseSymptoms(
+    String text, {
+    String? apiKey,
+    String provider = 'auto',
+  }) async {
+    final response = await _http
+        .post(
+          _uri('/parse-symptoms'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'text': text,
+            'provider': provider,
+            if (apiKey != null && apiKey.trim().isNotEmpty)
+              'api_key': apiKey.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) {
+      throw ApiException(
+        _extractError(
+            utf8.decode(response.bodyBytes), 'Unable to parse symptoms'),
+        statusCode: response.statusCode,
+      );
+    }
+    return ParseSymptomsResponse.fromJson(
       jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
     );
   }

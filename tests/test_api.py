@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -100,3 +103,67 @@ def test_metrics_endpoint_and_untrained_503(tmp_path: Path) -> None:
     assert untrained_client.get("/health").json()["model_loaded"] is False
     pred_503 = untrained_client.post("/predict", json={"symptoms": ["cough"]})
     assert pred_503.status_code == 503
+
+
+def test_export_docx_produces_valid_word_consultation_note() -> None:
+    client = TestClient(create_app())
+    resp = client.post(
+        "/export-docx",
+        json={
+            "symptoms": ["Chest Pain", "dyspnea", "sweating"],
+            "patient_name": "Jane Doe",
+        },
+    )
+    assert resp.status_code == 200
+    assert (
+        resp.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert "vitalai_consultation_note.docx" in resp.headers["content-disposition"]
+
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        names = set(zf.namelist())
+        assert {
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "word/_rels/document.xml.rels",
+            "word/styles.xml",
+            "word/document.xml",
+        }.issubset(names)
+        doc_xml = zf.read("word/document.xml")
+
+    root = ET.fromstring(doc_xml)
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    full_text = "\n".join(
+        t.text or "" for t in root.findall(".//w:t", ns)
+    )
+    assert "VitalAI Clinical Consultation & Prescription Note" in full_text
+    assert "Patient: Jane Doe" in full_text
+    assert "CRITICAL" in full_text
+    assert "Myocardial Infarction (Heart Attack)" in full_text
+    assert "Investigations / Lab Tests Ordered:" in full_text
+    assert "Rx  —  Medications, Dosage & Duration:" in full_text
+    assert "Doctor's Clinical Notes & Follow-Up Plan:" in full_text
+
+
+def test_parse_symptoms_endpoint_extracts_and_rejects_blank() -> None:
+    client = TestClient(create_app())
+
+    resp = client.post(
+        "/parse-symptoms",
+        json={
+            "text": "chest pain, shortness of breath, diarrhea, no cough",
+            "provider": "local",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    keys = [item["key"] for item in body["matched_symptoms"]]
+    assert keys == ["chest_pain", "breathlessness", "diarrhoea"]
+    assert "cough" in body["negated_terms"]
+    assert body["mode"] == "local_parser"
+
+    blank = client.post("/parse-symptoms", json={"text": "  "})
+    assert blank.status_code == 422
+
+

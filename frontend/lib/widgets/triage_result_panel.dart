@@ -2,53 +2,97 @@ import 'package:flutter/material.dart';
 
 import '../models/triage_models.dart';
 
-/// Glanceable clinical triage summary designed to minimize doctor cognitive load.
+/// Glanceable clinical triage summary supporting both Light and Dark themes cleanly.
 class TriageResultPanel extends StatelessWidget {
   final PredictResponse? result;
+  final bool isExporting;
   final ValueChanged<String> onAddFollowUpSymptom;
+  final ValueChanged<PredictResponse> onCopySummary;
+  final ValueChanged<PredictResponse> onExportWord;
 
   const TriageResultPanel({
     super.key,
     required this.result,
+    this.isExporting = false,
     required this.onAddFollowUpSymptom,
+    required this.onCopySummary,
+    required this.onExportWord,
   });
 
-  static _UrgencyPalette _paletteFor(String urgency) {
+  static _UrgencyPalette _paletteFor(String urgency, {required bool isDark}) {
     switch (urgency.toLowerCase()) {
       case 'critical':
-        return const _UrgencyPalette(
-          color: Color(0xFFB91C1C),
-          background: Color(0xFFFEF2F2),
-          border: Color(0xFFFECACA),
-          icon: Icons.emergency_outlined,
-        );
+        return isDark
+            ? const _UrgencyPalette(
+                badge: Color(0xFFDC2626),
+                accentText: Color(0xFFFCA5A5),
+                background: Color(0xFF2B1418),
+                border: Color(0xFF7F1D1D),
+                icon: Icons.emergency_outlined,
+              )
+            : const _UrgencyPalette(
+                badge: Color(0xFFB91C1C),
+                accentText: Color(0xFFB91C1C),
+                background: Color(0xFFFEF2F2),
+                border: Color(0xFFFECACA),
+                icon: Icons.emergency_outlined,
+              );
       case 'high':
-        return const _UrgencyPalette(
-          color: Color(0xFFB45309),
-          background: Color(0xFFFFFBEB),
-          border: Color(0xFFFDE68A),
-          icon: Icons.priority_high_rounded,
-        );
+        return isDark
+            ? const _UrgencyPalette(
+                badge: Color(0xFFD97706),
+                accentText: Color(0xFFFCD34D),
+                background: Color(0xFF2B1F0E),
+                border: Color(0xFF78350F),
+                icon: Icons.priority_high_rounded,
+              )
+            : const _UrgencyPalette(
+                badge: Color(0xFFB45309),
+                accentText: Color(0xFFB45309),
+                background: Color(0xFFFFFBEB),
+                border: Color(0xFFFDE68A),
+                icon: Icons.priority_high_rounded,
+              );
       case 'moderate':
-        return const _UrgencyPalette(
-          color: Color(0xFF1D4ED8),
-          background: Color(0xFFEFF6FF),
-          border: Color(0xFFBFDBFE),
-          icon: Icons.assignment_late_outlined,
-        );
+        return isDark
+            ? const _UrgencyPalette(
+                badge: Color(0xFF2563EB),
+                accentText: Color(0xFF93C5FD),
+                background: Color(0xFF13223A),
+                border: Color(0xFF1E3A8A),
+                icon: Icons.assignment_late_outlined,
+              )
+            : const _UrgencyPalette(
+                badge: Color(0xFF1D4ED8),
+                accentText: Color(0xFF1D4ED8),
+                background: Color(0xFFEFF6FF),
+                border: Color(0xFFBFDBFE),
+                icon: Icons.assignment_late_outlined,
+              );
       default:
-        return const _UrgencyPalette(
-          color: Color(0xFF15803D),
-          background: Color(0xFFF0FDF4),
-          border: Color(0xFFBBF7D0),
-          icon: Icons.check_circle_outline,
-        );
+        return isDark
+            ? const _UrgencyPalette(
+                badge: Color(0xFF16A34A),
+                accentText: Color(0xFF86EFAC),
+                background: Color(0xFF11291D),
+                border: Color(0xFF14532D),
+                icon: Icons.check_circle_outline,
+              )
+            : const _UrgencyPalette(
+                badge: Color(0xFF15803D),
+                accentText: Color(0xFF15803D),
+                background: Color(0xFFF0FDF4),
+                border: Color(0xFFBBF7D0),
+                icon: Icons.check_circle_outline,
+              );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final data = result;
 
     if (data == null) {
@@ -58,10 +102,10 @@ class TriageResultPanel extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
+              Icon(
                 Icons.monitor_heart_outlined,
                 size: 40,
-                color: Color(0xFF0F6E75),
+                color: colors.primary,
               ),
               const SizedBox(height: 12),
               Text(
@@ -72,10 +116,10 @@ class TriageResultPanel extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Select one or more patient symptoms on the left and tap Assess Triage for urgency, specialist routing, and top differentials.',
+                'Select patient symptoms on the left, paste a clinical note, or load a preset and tap Assess Triage.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF64748B),
+                  color: colors.onSurfaceVariant,
                 ),
               ),
             ],
@@ -85,13 +129,13 @@ class TriageResultPanel extends StatelessWidget {
     }
 
     final triage = data.triage;
-    final palette = _paletteFor(triage.urgency);
+    final palette = _paletteFor(triage.urgency, isDark: isDark);
     final top = data.predictions.isNotEmpty ? data.predictions.first : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Glanceable Urgency & Action Card
+        // 1. Glanceable Urgency, Referral & Export Toolbar
         Card(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -111,7 +155,7 @@ class TriageResultPanel extends StatelessWidget {
                         vertical: 5,
                       ),
                       decoration: BoxDecoration(
-                        color: palette.color,
+                        color: palette.badge,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Row(
@@ -136,7 +180,7 @@ class TriageResultPanel extends StatelessWidget {
                       Text(
                         '${(top.probability * 100).toStringAsFixed(1)}% match',
                         style: theme.textTheme.labelLarge?.copyWith(
-                          color: palette.color,
+                          color: palette.accentText,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -148,14 +192,14 @@ class TriageResultPanel extends StatelessWidget {
                     top.displayName,
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: const Color(0xFF0F172A),
+                      color: colors.onSurface,
                     ),
                   ),
                 const SizedBox(height: 4),
                 Text(
                   'Refer to: ${triage.specialist}',
                   style: theme.textTheme.titleSmall?.copyWith(
-                    color: const Color(0xFF334155),
+                    color: colors.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -165,7 +209,7 @@ class TriageResultPanel extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: colors.surface,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: palette.border),
                     ),
@@ -173,13 +217,13 @@ class TriageResultPanel extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(Icons.warning_amber_rounded,
-                            color: palette.color, size: 18),
+                            color: palette.accentText, size: 18),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Red Flag: ${triage.redFlags.join(' • ')}',
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: palette.color,
+                              color: palette.accentText,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -211,15 +255,49 @@ class TriageResultPanel extends StatelessWidget {
                         ),
                       ),
                 ],
-                if (triage.precautions.isNotEmpty || triage.warnings.isNotEmpty) ...[
+                if (triage.precautions.isNotEmpty ||
+                    triage.warnings.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   ...triage.precautions.map(
-                    (p) => _NoticeLine(text: p, color: const Color(0xFF92400E)),
+                    (p) => _NoticeLine(
+                      text: p,
+                      color: isDark
+                          ? const Color(0xFFFCD34D)
+                          : const Color(0xFF92400E),
+                    ),
                   ),
                   ...triage.warnings.map(
-                    (w) => _NoticeLine(text: w, color: const Color(0xFF475569)),
+                    (w) => _NoticeLine(text: w, color: colors.onSurfaceVariant),
                   ),
                 ],
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => onCopySummary(data),
+                      icon: const Icon(Icons.copy_outlined, size: 16),
+                      label: const Text('Copy Note'),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: colors.surface,
+                      ),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: isExporting ? null : () => onExportWord(data),
+                      icon: isExporting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.description_outlined, size: 16),
+                      label: Text(
+                        isExporting ? 'Exporting...' : 'Download Word (.docx)',
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -244,7 +322,7 @@ class TriageResultPanel extends StatelessWidget {
                   Text(
                     data.primaryReasoning,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF334155),
+                      color: colors.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -271,7 +349,7 @@ class TriageResultPanel extends StatelessWidget {
                             Text(
                               '${pct.toStringAsFixed(1)}% · ${cand.baseUrgency}',
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: const Color(0xFF475569),
+                                color: colors.onSurfaceVariant,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -283,10 +361,10 @@ class TriageResultPanel extends StatelessWidget {
                           child: LinearProgressIndicator(
                             value: cand.probability.clamp(0.0, 1.0),
                             minHeight: 6,
-                            backgroundColor: const Color(0xFFE2E8F0),
+                            backgroundColor: colors.surfaceContainerHighest,
                             color: cand.rank == 1
-                                ? const Color(0xFF0F6E75)
-                                : const Color(0xFF94A3B8),
+                                ? colors.primary
+                                : colors.outline,
                           ),
                         ),
                         if (cand.reasoningSummary.isNotEmpty) ...[
@@ -294,7 +372,7 @@ class TriageResultPanel extends StatelessWidget {
                           Text(
                             cand.reasoningSummary,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF64748B),
+                              color: colors.onSurfaceVariant,
                               fontSize: 12,
                             ),
                           ),
@@ -308,7 +386,7 @@ class TriageResultPanel extends StatelessWidget {
                   Text(
                     'Check to Narrow Differential (tap to add)',
                     style: theme.textTheme.labelMedium?.copyWith(
-                      color: const Color(0xFF475569),
+                      color: colors.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -331,7 +409,9 @@ class TriageResultPanel extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
-        if (data.alternativeCauses.isNotEmpty || data.symptomCauses.isNotEmpty) ...[
+        // 3. Progressive Disclosure: Alternative Causes
+        if (data.alternativeCauses.isNotEmpty ||
+            data.symptomCauses.isNotEmpty) ...[
           Card(
             child: ExpansionTile(
               title: Text(
@@ -347,7 +427,7 @@ class TriageResultPanel extends StatelessWidget {
                   Text(
                     'Alternative Diseases Sharing These Symptoms',
                     style: theme.textTheme.labelMedium?.copyWith(
-                      color: const Color(0xFF475569),
+                      color: colors.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -362,13 +442,13 @@ class TriageResultPanel extends StatelessWidget {
                             '${alt.displayName} (${alt.baseUrgency} urgency)',
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w700,
-                              color: const Color(0xFF0F172A),
+                              color: colors.onSurface,
                             ),
                           ),
                           Text(
                             alt.whyPossible,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF475569),
+                              color: colors.onSurfaceVariant,
                             ),
                           ),
                         ],
@@ -381,7 +461,7 @@ class TriageResultPanel extends StatelessWidget {
                   Text(
                     'Possible Causes by Symptom',
                     style: theme.textTheme.labelMedium?.copyWith(
-                      color: const Color(0xFF475569),
+                      color: colors.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -392,7 +472,7 @@ class TriageResultPanel extends StatelessWidget {
                       child: Text(
                         '${grp.displayName}: ${grp.possibleDiseases.join(', ')}',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF334155),
+                          color: colors.onSurface,
                         ),
                       ),
                     ),
@@ -420,7 +500,7 @@ class TriageResultPanel extends StatelessWidget {
                 Text(
                   'Key Symptom Drivers',
                   style: theme.textTheme.labelMedium?.copyWith(
-                    color: const Color(0xFF475569),
+                    color: colors.onSurfaceVariant,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -445,7 +525,7 @@ class TriageResultPanel extends StatelessWidget {
               Text(
                 'Expert System Inference Chain',
                 style: theme.textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFF475569),
+                  color: colors.onSurfaceVariant,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -456,7 +536,7 @@ class TriageResultPanel extends StatelessWidget {
                   child: Text(
                     '[Step ${step.iteration}] ${step.ruleName}: ${step.explanation}',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF334155),
+                      color: colors.onSurface,
                     ),
                   ),
                 ),
@@ -469,7 +549,7 @@ class TriageResultPanel extends StatelessWidget {
           data.disclaimer,
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
-            color: const Color(0xFF64748B),
+            color: colors.onSurfaceVariant,
           ),
         ),
       ],
@@ -499,13 +579,15 @@ class _NoticeLine extends StatelessWidget {
 }
 
 class _UrgencyPalette {
-  final Color color;
+  final Color badge;
+  final Color accentText;
   final Color background;
   final Color border;
   final IconData icon;
 
   const _UrgencyPalette({
-    required this.color,
+    required this.badge,
+    required this.accentText,
     required this.background,
     required this.border,
     required this.icon,

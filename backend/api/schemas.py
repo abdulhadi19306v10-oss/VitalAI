@@ -15,6 +15,7 @@ class SymptomItem(BaseModel):
     key: str
     display_name: str
     aliases: list[str] = Field(default_factory=list)
+    category: str = "General"
 
 
 class SymptomsResponse(BaseModel):
@@ -30,6 +31,32 @@ class HealthResponse(BaseModel):
     n_features: int = 0
     n_classes: int = 0
     kb_diseases: int = 0
+    llm_translator_configured: bool = False
+    llm_provider: str | None = None
+
+
+class ParseSymptomsRequest(BaseModel):
+    """Free-text symptom list or clinical note to translate into canonical keys."""
+
+    text: str = Field(..., min_length=2, max_length=2000)
+    provider: str | None = Field(default="auto")
+    api_key: str | None = Field(default=None)
+
+    @field_validator("text")
+    @classmethod
+    def require_non_blank(cls, value: str) -> str:
+        trimmed = value.strip()
+        if len(trimmed) < 2:
+            raise ValueError("Please enter at least one symptom description.")
+        return trimmed
+
+
+class ParseSymptomsResponse(BaseModel):
+    matched_symptoms: list[SymptomItem]
+    unmapped_terms: list[str]
+    negated_terms: list[str]
+    mode: str
+    note: str
 
 
 class PredictRequest(BaseModel):
@@ -55,6 +82,12 @@ class PredictRequest(BaseModel):
         if not cleaned:
             raise ValueError("At least one valid non-empty symptom must be provided.")
         return cleaned
+
+
+class ExportDocxRequest(PredictRequest):
+    """Request payload for generating a clinician consultation & prescription Word note."""
+
+    patient_name: str = Field(default="", max_length=120)
 
 
 class DiseaseCandidate(BaseModel):

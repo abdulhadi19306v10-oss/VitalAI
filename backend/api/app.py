@@ -7,15 +7,21 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
+from backend.api.docx_export import build_consultation_docx
 from backend.api.schemas import (
     AlternativeCause,
     DiseaseCandidate,
+    ExportDocxRequest,
     FollowUpSymptom,
     HealthResponse,
     InferenceStepOut,
+    ParseSymptomsRequest,
+    ParseSymptomsResponse,
     PredictRequest,
     PredictResponse,
     SymptomCauseGroup,
@@ -29,7 +35,8 @@ from backend.logic.expert_system import TriageExpertSystem
 from backend.logic.knowledge_base import DISEASE_KB, URGENCY_RANK, get_disease_profile
 from backend.ml.data_loader import format_symptom_display, normalize_symptom_key
 from backend.ml.naive_bayes import _BaseNaiveBayes
-from backend.ml.symptom_aliases import get_aliases_for_symptom
+from backend.ml.symptom_aliases import get_aliases_for_symptom, get_symptom_category
+from backend.ml.symptom_parser import parse_symptoms_smart, resolve_llm_config
 
 DEFAULT_ARTIFACT_DIR = Path("backend/artifacts")
 MEDICAL_DISCLAIMER = (
@@ -79,6 +86,7 @@ class _RuntimeContainer:
 
 def create_app(artifact_dir: Path | None = None) -> FastAPI:
     """Application factory creating the configured VitalAI FastAPI service."""
+    load_dotenv(override=False)
     resolved_dir = artifact_dir or DEFAULT_ARTIFACT_DIR
     runtime = _RuntimeContainer(resolved_dir)
 
@@ -103,6 +111,7 @@ def create_app(artifact_dir: Path | None = None) -> FastAPI:
     @service.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         model = runtime.model
+        provider, _, _, _ = resolve_llm_config()
         return HealthResponse(
             status="ok",
             model_loaded=model is not None,
@@ -111,6 +120,16 @@ def create_app(artifact_dir: Path | None = None) -> FastAPI:
             n_features=len(model.feature_names_) if model is not None else 0,
             n_classes=len(model.classes_) if model is not None else 0,
             kb_diseases=len(DISEASE_KB),
+            llm_translator_configured=provider is not None,
+            llm_provider=provider,
+        )
+
+    def _make_symptom_item(key: str) -> SymptomItem:
+        return SymptomItem(
+            key=key,
+            display_name=runtime.display_names[key],
+            aliases=get_aliases_for_symptom(key),
+            category=get_symptom_category(key),
         )
 
     @service.get("/symptoms", response_model=SymptomsResponse)
@@ -118,14 +137,7 @@ def create_app(artifact_dir: Path | None = None) -> FastAPI:
         q: str | None = Query(default=None, description="Optional symptom search filter."),
     ) -> SymptomsResponse:
         model = runtime.require_model()
-        items = [
-            SymptomItem(
-                key=key,
-                display_name=runtime.display_names[key],
-                aliases=get_aliases_for_symptom(key),
-            )
-            for key in model.feature_names_
-        ]
+        items = [_make_symptom_item(key) for key in model.feature_names_]
         if q:
             needle = normalize_symptom_key(q)
             q_low = q.strip().lower()
@@ -138,8 +150,24 @@ def create_app(artifact_dir: Path | None = None) -> FastAPI:
             ]
         return SymptomsResponse(count=len(items), symptoms=items)
 
-    @service.post("/predict", response_model=PredictResponse)
-    def predict(payload: PredictRequest) -> PredictResponse:
+    @service.post("/parse-symptoms", response_model=ParseSymptomsResponse)
+    def parse_symptoms_endpoint(payload: ParseSymptomsRequest) -> ParseSymptomsResponse:
+        model = runtime.require_model()
+        parsed = parse_symptoms_smart(
+            payload.text,
+            model.feature_names_,
+            provider=payload.provider,
+            api_key=payload.api_key,
+        )
+        return ParseSymptomsResponse(
+            matched_symptoms=[_make_symptom_item(k) for k in parsed.matched_keys],
+            unmapped_terms=parsed.unmapped_terms,
+            negated_terms=parsed.negated_terms,
+            mode=parsed.mode,
+            note=parsed.note,
+        )
+
+    def _run_triage_pipeline(payload: PredictRequest) -> PredictResponse:
         model = runtime.require_model()
         unknown = [s for s in payload.symptoms if s not in runtime.feature_index]
         if unknown:
@@ -326,6 +354,30 @@ def create_app(artifact_dir: Path | None = None) -> FastAPI:
             ),
             inference_trace=trace_out,
             disclaimer=MEDICAL_DISCLAIMER,
+        )
+
+    @service.post("/predict", response_model=PredictResponse)
+    def predict(payload: PredictRequest) -> PredictResponse:
+        return _run_triage_pipeline(payload)
+
+    @service.post("/export-docx")
+    def export_docx(payload: ExportDocxRequest) -> Response:
+        result = _run_triage_pipeline(payload)
+        symptom_displays = [
+            runtime.display_names.get(sym, format_symptom_display(sym))
+            for sym in result.normalized_symptoms
+        ]
+        docx_bytes = build_consultation_docx(
+            result=result,
+            symptom_display_names=symptom_displays,
+            patient_name=payload.patient_name,
+        )
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": 'attachment; filename="vitalai_consultation_note.docx"'
+            },
         )
 
     @service.get("/metrics")

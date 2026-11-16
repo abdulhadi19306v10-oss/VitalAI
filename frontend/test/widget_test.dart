@@ -22,6 +22,33 @@ MockClient _buildMockHttp({bool failConnection = false}) {
           'model_type': 'multinomial',
           'n_features': 131,
           'n_classes': 41,
+          'llm_translator_configured': false,
+        }),
+        200,
+        headers: jsonHeaders,
+      );
+    }
+    if (request.url.path == '/parse-symptoms') {
+      return http.Response(
+        jsonEncode({
+          'matched_symptoms': [
+            {
+              'key': 'chest_pain',
+              'display_name': 'Chest Pain',
+              'aliases': ['angina'],
+              'category': 'Cardio & Respiratory',
+            },
+            {
+              'key': 'sweating',
+              'display_name': 'Sweating',
+              'aliases': ['diaphoresis'],
+              'category': 'Fever & Systemic',
+            },
+          ],
+          'unmapped_terms': ['earache'],
+          'negated_terms': ['cough'],
+          'mode': 'local_parser',
+          'note': 'Parsed locally using clinical synonym & typo matcher.',
         }),
         200,
         headers: jsonHeaders,
@@ -36,21 +63,62 @@ MockClient _buildMockHttp({bool failConnection = false}) {
               'key': 'chest_pain',
               'display_name': 'Chest Pain',
               'aliases': ['angina', 'thoracic pain'],
+              'category': 'Cardio & Respiratory',
             },
             {
               'key': 'breathlessness',
               'display_name': 'Breathlessness',
               'aliases': ['dyspnea', 'shortness of breath'],
+              'category': 'Cardio & Respiratory',
             },
             {
               'key': 'sweating',
               'display_name': 'Sweating',
               'aliases': ['diaphoresis'],
+              'category': 'Fever & Systemic',
             },
             {
               'key': 'cough',
               'display_name': 'Cough',
               'aliases': ['coughing'],
+              'category': 'Cardio & Respiratory',
+            },
+          ],
+        }),
+        200,
+        headers: jsonHeaders,
+      );
+    }
+    if (request.url.path == '/export-docx') {
+      return http.Response.bytes(
+        [80, 75, 3, 4, 1, 2, 3],
+        200,
+        headers: const {
+          'content-type':
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        },
+      );
+    }
+    if (request.url.path == '/metrics') {
+      return http.Response(
+        jsonEncode({
+          'dataset_diagnostics': {
+            'n_train': 4920,
+            'n_features': 131,
+            'n_classes': 41,
+            'train_dedup': {'unique_pairs': 304},
+          },
+          'recommended_model': {
+            'overfitting_audit': {'status': 'PASS_LOW_MISTAKE_NO_OVERFIT'},
+          },
+          'model_comparison': [
+            {
+              'model_name': 'MultinomialNB(alpha=0.1)',
+              'cv_summary': {
+                'mean_val_accuracy': 1.0,
+                'mean_noisy_val_accuracy': 0.9708,
+              },
+              'dropout_20_accuracy': 0.9805,
             },
           ],
         }),
@@ -208,19 +276,105 @@ void main() {
     expect(find.textContaining('R2_CardiacRedFlag'), findsOneWidget);
   });
 
-  testWidgets('Search matches clinical synonym aliases cleanly',
+  testWidgets('Search Enter shortcut, Undo Clear, Word export, and Model Audit work',
+      (WidgetTester tester) async {
+    String? savedName;
+    int? savedLength;
+    final client = VitalApiClient(httpClient: _buildMockHttp());
+    await tester.pumpWidget(
+      VitalAiApp(
+        apiClient: client,
+        onSaveDocx: (bytes, fileName) async {
+          savedName = fileName;
+          savedLength = bytes.length;
+          return 'Saved $fileName';
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Alias search + Enter adds top match
+    await tester.enterText(find.byType(TextField), 'dyspnea');
+    await tester.pumpAndSettle();
+    expect(find.text('Breathlessness (dyspnea)'), findsOneWidget);
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(find.text('Selected (1)'), findsOneWidget);
+
+    // Clear all + Undo restores symptom
+    await tester.tap(find.text('Clear all'));
+    await tester.pumpAndSettle();
+    expect(find.text('Selected (1)'), findsNothing);
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Selected (1)'), findsOneWidget);
+
+    // Filter pill scopes visible chips cleanly
+    final filterPill = find.text('Fever & Systemic');
+    await tester.ensureVisible(filterPill);
+    await tester.tap(filterPill);
+    await tester.pumpAndSettle();
+    expect(find.text('Sweating'), findsOneWidget);
+    expect(find.text('Chest Pain'), findsNothing);
+
+    await tester.ensureVisible(find.text('Sweating'));
+    await tester.tap(find.text('Sweating'));
+    await tester.pumpAndSettle();
+
+    final assessBtn = find.text('Assess Triage');
+    await tester.ensureVisible(assessBtn);
+    await tester.tap(assessBtn);
+    await tester.pumpAndSettle();
+
+    // In-session history chip appears
+    expect(find.text('Recent:'), findsOneWidget);
+
+    // Word .docx download workflow
+    final exportBtn = find.text('Download Word (.docx)');
+    await tester.ensureVisible(exportBtn);
+    await tester.tap(exportBtn);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'John Doe');
+    await tester.tap(find.text('Download .docx'));
+    await tester.pumpAndSettle();
+
+    expect(savedName, 'vitalai_consultation_note.docx');
+    expect(savedLength, 7);
+    expect(find.text('Saved vitalai_consultation_note.docx'), findsOneWidget);
+
+    // Model Audit dialog loads metrics
+    await tester.tap(find.byIcon(Icons.analytics_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('Model Audit & Evaluation Summary'), findsOneWidget);
+    expect(find.textContaining('PASS_LOW_MISTAKE_NO_OVERFIT'), findsOneWidget);
+  });
+
+  testWidgets('Dark theme toggle and bulk symptom extractor work smoothly',
       (WidgetTester tester) async {
     final client = VitalApiClient(httpClient: _buildMockHttp());
     await tester.pumpWidget(VitalAiApp(apiClient: client));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), 'dyspnea');
+    // Toggle light -> dark
+    expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.dark_mode_outlined));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
+
+    // Open bulk paste extractor, extract & assess
+    await tester.tap(find.text('Paste note / bulk list'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField).last,
+      'chest pain, sweaty, earache, no cough',
+    );
+    await tester.tap(find.text('Extract & Assess'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Breathlessness (dyspnea)'), findsOneWidget);
-    await tester.tap(find.text('Breathlessness (dyspnea)'));
-    await tester.pumpAndSettle();
-    expect(find.text('Selected (1)'), findsOneWidget);
+    expect(find.text('Selected (2)'), findsOneWidget);
+    expect(find.text('Not in dataset: earache'), findsOneWidget);
+    expect(find.text('Ignored negated: cough'), findsOneWidget);
+    expect(find.text('CRITICAL URGENCY'), findsOneWidget);
   });
 
   testWidgets('Offline backend displays retry banner cleanly',

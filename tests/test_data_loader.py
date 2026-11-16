@@ -19,6 +19,7 @@ from backend.ml.symptom_aliases import (
     CANONICAL_SYNONYMS,
     DISPLAY_NAME_OVERRIDES,
     SYMPTOM_ALIASES,
+    SYMPTOM_CATEGORIES,
     resolve_symptom_key,
 )
 
@@ -95,6 +96,7 @@ def test_symptom_aliases_are_valid_and_conflict_free() -> None:
 
     assert set(CANONICAL_SYNONYMS.keys()).issubset(features)
     assert set(DISPLAY_NAME_OVERRIDES.keys()).issubset(features)
+    assert set(SYMPTOM_CATEGORIES.keys()) == features
     collisions = set(SYMPTOM_ALIASES.keys()) & features
     assert not collisions, f"Alias collided with canonical feature(s): {collisions}"
 

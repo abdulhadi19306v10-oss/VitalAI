@@ -4,11 +4,13 @@ class SymptomItem {
   final String key;
   final String displayName;
   final List<String> aliases;
+  final String category;
 
   const SymptomItem({
     required this.key,
     required this.displayName,
     this.aliases = const [],
+    this.category = 'General',
   });
 
   factory SymptomItem.fromJson(Map<String, dynamic> json) {
@@ -16,8 +18,21 @@ class SymptomItem {
       key: json['key'] as String,
       displayName: json['display_name'] as String,
       aliases: List<String>.from(json['aliases'] as List? ?? const []),
+      category: json['category'] as String? ?? 'General',
     );
   }
+}
+
+class ConsultationEntry {
+  final DateTime timestamp;
+  final Set<String> symptoms;
+  final PredictResponse response;
+
+  const ConsultationEntry({
+    required this.timestamp,
+    required this.symptoms,
+    required this.response,
+  });
 }
 
 class HealthStatus {
@@ -26,6 +41,8 @@ class HealthStatus {
   final String? modelType;
   final int nFeatures;
   final int nClasses;
+  final bool llmTranslatorConfigured;
+  final String? llmProvider;
 
   const HealthStatus({
     required this.status,
@@ -33,6 +50,8 @@ class HealthStatus {
     this.modelType,
     required this.nFeatures,
     required this.nClasses,
+    this.llmTranslatorConfigured = false,
+    this.llmProvider,
   });
 
   factory HealthStatus.fromJson(Map<String, dynamic> json) {
@@ -42,6 +61,39 @@ class HealthStatus {
       modelType: json['model_type'] as String?,
       nFeatures: json['n_features'] as int? ?? 0,
       nClasses: json['n_classes'] as int? ?? 0,
+      llmTranslatorConfigured:
+          json['llm_translator_configured'] as bool? ?? false,
+      llmProvider: json['llm_provider'] as String?,
+    );
+  }
+}
+
+class ParseSymptomsResponse {
+  final List<SymptomItem> matchedSymptoms;
+  final List<String> unmappedTerms;
+  final List<String> negatedTerms;
+  final String mode;
+  final String note;
+
+  const ParseSymptomsResponse({
+    required this.matchedSymptoms,
+    required this.unmappedTerms,
+    required this.negatedTerms,
+    required this.mode,
+    required this.note,
+  });
+
+  factory ParseSymptomsResponse.fromJson(Map<String, dynamic> json) {
+    return ParseSymptomsResponse(
+      matchedSymptoms: (json['matched_symptoms'] as List? ?? const [])
+          .map((e) => SymptomItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      unmappedTerms:
+          List<String>.from(json['unmapped_terms'] as List? ?? const []),
+      negatedTerms:
+          List<String>.from(json['negated_terms'] as List? ?? const []),
+      mode: json['mode'] as String? ?? 'local_parser',
+      note: json['note'] as String? ?? '',
     );
   }
 }
